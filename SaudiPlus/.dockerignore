@@ -1,0 +1,9 @@
+**/bin
+**/obj
+**/.secrets
+**/.env
+**/.env.*
+**/firebase
+**/*.pem
+**/*.pfx
+**/*.key

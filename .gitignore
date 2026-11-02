@@ -1,0 +1,70 @@
+# User-specific files
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Windows image file caches
+Thumbs.db
+ehthumbs.db
+
+# Build output directories
+bin/
+obj/
+
+# .NET Core SDK files
+project.lock.json
+project.fragment.lock.json
+
+# .NET Core global tools directory
+.dotnet/
+
+# npm package directories (if using npm for frontend)
+node_modules/
+
+# .NET Core runtime files
+*.dll
+*.exe
+*.pdb
+*.cache
+*.db
+
+# IIS Express settings
+IISExpress/
+
+# Log files
+*.log
+
+# JetBrains Rider settings (duplicate entry removed)
+.idea/
+
+# VS for Mac
+.vscode/  # (This was listed twice, already included above)
+
+# Build directories for Azure DevOps
+_build/
+
+# Publish output
+publish/
+
+# Test results
+TestResults/
+
+# Local credentials and environment files
+.secrets/
+.env
+.env.*
+!.env.example
+**/firebase/*service-key*.json
+*.pem
+*.pfx
+*.p12
+*.key
+*.bak
+*.sql
+
+# Reviewable source export, created without Git history
+.portfolio-export/

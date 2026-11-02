@@ -1,0 +1,6 @@
+@AwsSnsNotificationServer_HostAddress = http://localhost:5293
+
+GET {{AwsSnsNotificationServer_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

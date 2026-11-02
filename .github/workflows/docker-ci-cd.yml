@@ -1,0 +1,118 @@
+name: Docker CI/CD Pipeline
+
+# Historical deployment example. The client project is retired; pushes do not deploy.
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Install Docker Compose
+        run: |
+          sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+          sudo chmod +x /usr/local/bin/docker-compose
+
+      - name: Set deployment environment
+        run: |
+          BRANCH_NAME=${GITHUB_REF#refs/heads/}
+          if [[ "$BRANCH_NAME" == "staging" ]]; then
+            echo "DEPLOY_ENV=staging" >> $GITHUB_ENV
+            echo "DOCKER_PROJECT=saudi-plus-staging" >> $GITHUB_ENV
+          else
+            echo "DEPLOY_ENV=production" >> $GITHUB_ENV
+            echo "DOCKER_PROJECT=saudi-plus-prod" >> $GITHUB_ENV
+          fi
+
+      - name: Build Docker images
+        run: docker-compose -p ${{ env.DOCKER_PROJECT }} build
+
+      - name: Save Docker image as tar
+        run: docker save -o ${{ env.DOCKER_PROJECT }}-api.tar ${{ env.DOCKER_PROJECT }}-api:latest
+
+      - name: Upload Docker image as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.DOCKER_PROJECT }}-api
+          path: ${{ env.DOCKER_PROJECT }}-api.tar
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Set deployment environment
+        run: |
+          BRANCH_NAME=${GITHUB_REF#refs/heads/}
+          if [[ "$BRANCH_NAME" == "staging" ]]; then
+            echo "DEPLOY_ENV=staging" >> $GITHUB_ENV
+            echo "DOCKER_PROJECT=saudi-plus-staging" >> $GITHUB_ENV
+            echo "EC2_HOST=${{ secrets.STAGING_EC2_HOST }}" >> $GITHUB_ENV
+            echo "EC2_USERNAME=${{ secrets.STAGING_EC2_USERNAME }}" >> $GITHUB_ENV
+            printf "%s" "${{ secrets.STAGING_EC2_SSH_KEY }}" > private_key.pem
+          else
+            echo "DEPLOY_ENV=production" >> $GITHUB_ENV
+            echo "DOCKER_PROJECT=saudi-plus-prod" >> $GITHUB_ENV
+            echo "EC2_HOST=${{ secrets.PRODUCTION_EC2_HOST }}" >> $GITHUB_ENV
+            echo "EC2_USERNAME=${{ secrets.PRODUCTION_EC2_USERNAME }}" >> $GITHUB_ENV
+            printf "%s" "${{ secrets.PRODUCTION_EC2_SSH_KEY }}" > private_key.pem
+          fi
+          chmod 600 private_key.pem
+
+      - name: Download Docker image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.DOCKER_PROJECT }}-api
+          path: ./artifacts
+
+      - name: Copy Docker image to EC2 instance
+        run: |
+          scp -i private_key.pem -o StrictHostKeyChecking=no ./artifacts/${{ env.DOCKER_PROJECT }}-api.tar \
+            ${{ env.EC2_USERNAME }}@${{ env.EC2_HOST }}:/home/ubuntu/${{ env.DOCKER_PROJECT }}-api.tar
+
+      - name: SSH into EC2 instance and deploy
+        env:
+          DOCKER_PROJECT: ${{ env.DOCKER_PROJECT }}
+        run: |
+          ssh -i private_key.pem -o StrictHostKeyChecking=no ${{ env.EC2_USERNAME }}@${{ env.EC2_HOST }} \
+            "DOCKER_PROJECT='$DOCKER_PROJECT' bash -s" << 'EOF'
+
+            cd /home/ubuntu/
+
+            # Secrets are provisioned on the server, outside source and images.
+            test -s .env || { echo "Provision server .env before deployment"; exit 1; }
+            test -s SaudiPlus/.secrets/shared.json || { echo "Provision runtime secret files before deployment"; exit 1; }
+
+            # Ensure docker is accessible
+            sudo chmod +x /usr/local/bin/docker-compose
+            sudo usermod -aG docker $USER
+            newgrp docker
+
+            # Stop and remove only the old API container (but NOT the database)
+            docker-compose stop api || true
+            docker-compose rm -f api || true
+
+            # Remove old API image if it exists
+            OLD_IMAGE=$(docker images -q $DOCKER_PROJECT-api:latest)
+            if [ -n "$OLD_IMAGE" ]; then
+              docker rmi $OLD_IMAGE || true
+            fi
+
+            # Load the new Docker image
+            docker load -i /home/ubuntu/$DOCKER_PROJECT-api.tar
+
+            # Start the API container without affecting the database
+            docker-compose up -d api
+
+            # Clean up tar file to save disk space
+            rm -f /home/ubuntu/$DOCKER_PROJECT-api.tar
+
+            echo "Deployment complete!"
+          EOF

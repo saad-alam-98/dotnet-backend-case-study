@@ -1,0 +1,39 @@
+services:
+    api:
+        build: ./SaudiPlus
+        container_name: saudi-plus-api
+        environment:
+            ASPNETCORE_ENVIRONMENT: "${ASPNETCORE_ENVIRONMENT:-Production}"
+        volumes:
+            - ./SaudiPlus/.secrets:/app/.secrets:ro
+        ports:
+            - "8080:8080"
+        depends_on:
+            - db
+        networks:
+            - saudi-plus-network
+        restart: unless-stopped
+    db:
+        image: "mcr.microsoft.com/mssql/server:2022-latest"
+        container_name: saudi-plus-db
+        restart: always
+        environment:
+            MSSQL_SA_PASSWORD: "${DB_PASSWORD:?Set DB_PASSWORD in .env}"
+            ACCEPT_EULA: "Y"
+        ports:
+            - "1433:1433"
+        volumes:
+            - saudi-plus-network-data:/var/opt/mssql
+        networks:
+            - saudi-plus-network
+        healthcheck:
+            test: ["CMD-SHELL", "sqlcmd -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q 'SELECT 1' || exit 1"]
+            interval: 10s
+            retries: 5
+
+volumes:
+    saudi-plus-network-data:
+
+networks:
+    saudi-plus-network:
+        driver: bridge
